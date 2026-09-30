@@ -1,0 +1,330 @@
+/*********************************************************************/
+/*   Profile Cleanup Utility - Delete the Profiles                   */
+/*                                                                   */
+/*********************************************************************/
+/*  Program Name:  PCU100CL                                          */
+/*                                                                   */
+/*  Purpose.....:  This program deletes profiles that were disabled  */
+/*                 during last months PCU000CL run.                  */
+/*                                                                   */
+/*                 Before deleting the profile any objects owned are */
+/*                 reassigned to the Group Profile, if there is one, */
+/*                 or 'STAPLES' if there is not.                     */
+/*                                                                   */
+/*********************************************************************/
+/* CHG# PROJECT  DATE    PGMR  -------DESCRIPTION OF CHANGE--------- */
+/*                                                                   */
+/* 001  ITMAINT 11/13/06 JAB   CHG000000049838 - Modify to reassign  */
+/*                             ownership of IFS objects as it does   */
+/*                             for OS/400 objects.                   */
+/*                                                                   */
+/* 002  ITMAINT 12/15/06 JAB   CHG000000052172 - Added a RUNSQLSTM   */
+/*                             to delete records in ODBCLOG/ODBCUSERS*/
+/*                             if the profile no longer exits.       */
+/*                                                                   */
+/* 003  ITMAINT 04/30/07 JAB   CHG000000059399 - Added a RUNSQLSTM   */
+/*                             to delete records in SFBASLIB/SFSCTY  */
+/*                             if running on Sunrise.                */
+/*                                                                   */
+/* 004  ITMAINT 12/03/07 JAB   CHG000000069715 - Added program       */
+/*                             PCU101 - Remove Enabled Profiles.     */
+/*                             This was necessary because there are  */
+/*                             multiple other processes that reset   */
+/*                             passwords.                            */
+/*                                                                   */
+/* 005  ITMAINT 01/08/08 JAB   CHG000000072710 - Added program,      */
+/*                             ITDLTUSRSQ - Delete User Profile SQL, */
+/*                             as it does a much more thorough job   */
+/*                             of cleaning up the application        */
+/*                             security files by server.             */
+/*                                                                   */
+/* 006  ITMAINT 02/01/08 JAB   CHG000000072710 - While reviewing the */
+/*                             monthly run I discovered that the     */
+/*                             message updated by PCU110 is not the  */
+/*                             correct one.  Added MSGTYPE(*LAST) and*/
+/*                             RMV(*NO) to the RCVMSG command.       */
+/*                                                                   */
+/* 007  ITMAINT 03/05/08 JAB   CHG000000072710 - Reviewed with Cindy */
+/*                             the issue of DLTPRFOBJS retaining data*/
+/*                             since inception.  She agreed to       */
+/*                             modeling it after PCU010PF/PCU015PF.  */
+/*                             Retain the 12 month members, but each */
+/*                             one is just the year is was run on.   */
+/*                                                                   */
+/*********************************************************************/
+             PGM
+
+/* Declare all variables. */
+
+             DCL        VAR(&MBR) TYPE(*CHAR) LEN(7)
+             DCL        VAR(&MSGQ) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&COUNT) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&QMONTH) TYPE(*CHAR) LEN(2)
+             DCL        VAR(&MSGQNT) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&COUNT2) TYPE(*CHAR) LEN(6)
+             DCL        VAR(&SYSNAM) TYPE(*CHAR) LEN(8)
+             DCL        VAR(&NUM_MONTH) TYPE(*DEC) LEN(2)
+             DCL        VAR(&NMSGQ) TYPE(*DEC) LEN(6) VALUE(0)
+             DCL        VAR(&NCOUNT) TYPE(*DEC) LEN(6) VALUE(0)
+             DCL        VAR(&NCOUNT2) TYPE(*DEC) LEN(6) VALUE(0)
+             DCL        VAR(&NMSGQNT) TYPE(*DEC) LEN(6) VALUE(0)
+             DCL        VAR(&MSG1) TYPE(*CHAR) LEN(132)
+             DCL        VAR(&USRGRP) TYPE(*CHAR) LEN(10)
+
+             DCLF       FILE(ITTOOLS/PCU010PF)
+
+             ADDLIBLE   LIB(ITTOOLS)
+             MONMSG     MSGID(CPF0000)
+
+             RTVDTAARA  DTAARA(IBMMODS/#SYSNAME) RTNVAR(&SYSNAM)
+             MONMSG     MSGID(CPF0000) EXEC(DO)
+             RTVNETA    SYSNAME(&SYSNAM)
+             ENDDO
+
+/* Retrieve current month from the system values. */
+
+             RTVSYSVAL  SYSVAL(QMONTH) RTNVAR(&QMONTH)
+             CHGVAR     VAR(&NUM_MONTH) VALUE(&QMONTH)
+             CHGVAR     VAR(&NUM_MONTH) VALUE(&NUM_MONTH - 1)
+
+/* If current month is January, change back to December. */
+
+             IF         COND(&NUM_MONTH = 0) THEN(CHGVAR +
+                          VAR(&NUM_MONTH) VALUE(12))
+
+             CHGVAR     VAR(&QMONTH) VALUE(&NUM_MONTH)
+             CHGVAR     VAR(&MBR) VALUE('MONTH' *TCAT &QMONTH)
+
+/* Use the &MBR member created for the file overides. */
+
+             OVRDBF     FILE(PCU010PF) TOFILE(ITTOOLS/PCU010PF) +
+                          MBR(&MBR) LVLCHK(*NO)
+             OVRDBF     FILE(PCU010LF) TOFILE(ITTOOLS/PCU010LF) +
+                          MBR(&MBR) LVLCHK(*NO)
+
+/*004*/      OVRDBF     FILE(PCU015PF) TOFILE(ITTOOLS/PCU015PF) +
+                          MBR(&MBR) LVLCHK(*NO)
+/*004*/      OVRDBF     FILE(PCU015LF) TOFILE(ITTOOLS/PCU015LF) +
+                          MBR(&MBR) LVLCHK(*NO)
+
+             IF       COND(&SYSNAM *EQ 'MOONBEAM') THEN(DO)
+             ADDLIBLE   LIB(CLTSEC)
+             MONMSG     MSGID(CPF0000)
+             ENDDO
+
+             IF       COND(&SYSNAM *EQ 'SUNRISE') THEN(DO)
+             ADDLIBLE   LIB(SFBASLIB)
+             MONMSG     MSGID(CPF0000)
+             ENDDO
+
+
+/* Other file overides. */
+
+             OVRDBF     FILE(MENUPRF) LVLCHK(*NO)
+             OVRDBF     FILE(F0092) LVLCHK(*NO)
+             OVRDBF     FILE(SCSCTYL0) LVLCHK(*NO)
+             OVRDBF     FILE(SDSCTYL0) LVLCHK(*NO)
+
+/* 004 - Remove Enabled Profiles from PCU010LF/PCU015LF before processing */
+
+             CALL       PGM(*LIBL/PCU101)
+
+
+/* Call program to remove profile from JDA and Security files. */
+
+             CALL       PGM(ITTOOLS/PCU100) PARM(&SYSNAM)
+
+ READFILE:   RCVF
+             MONMSG     MSGID(CPF0864) EXEC(GOTO CMDLBL(BYEBYE))
+
+             IF         COND(%SST(&UPUPRF 1 1) *EQ 'Q') THEN(GOTO +
+                          CMDLBL(READFILE))
+
+/*007-Replace the member verse add*/
+
+/*007D       DSPUSRPRF  USRPRF(&UPUPRF) TYPE(*OBJOWN) +    */
+/*007D                    OUTPUT(*OUTFILE) +               */
+/*007D                    OUTFILE(ITTOOLS/DLTPRFOBJS) +    */
+/*007D                    OUTMBR(&MBR *ADD)                */
+
+/*007A*/     DSPUSRPRF  USRPRF(&UPUPRF) TYPE(*OBJOWN) +
+                          OUTPUT(*OUTFILE) +
+                          OUTFILE(ITTOOLS/DLTPRFOBJS) OUTMBR(&MBR +
+                          *REPLACE)
+             MONMSG     MSGID(CPF2204)
+
+/* CHG000000029139 */
+
+             IF         COND(&SYSNAM *NE 'COSMOS  ' *AND &SYSNAM *NE +
+                          'DAYBREAK' *AND &SYSNAM *NE 'DAWN    ' +
+                           *AND &SYSNAM *NE 'LYRA    ' +
+                           *AND &SYSNAM *NE 'MAR4DEV1' +
+                          *AND &SYSNAM *NE 'S44DEV  ') THEN(DO)
+
+             DSPUSRPRF  USRPRF(&UPUPRF) TYPE(*OBJOWN) +
+                          OUTPUT(*OUTFILE) +
+                          OUTFILE(ITTOOLS/DLTPRFOBJS) +
+                          OUTMBR(&UPUPRF *ADD)
+             MONMSG     MSGID(CPF2204)
+
+             ENDDO
+
+/* CHG000000029139 */
+
+
+             DLTMSGQ    MSGQ(&UPUPRF)
+             MONMSG     MSGID(CPF2451)
+             MONMSG     MSGID(CPF2105 CPF2403) EXEC(DO)
+               SNDPGMMSG  MSG('MSGQ ' *CAT &UPUPRF *TCAT ' Not Found')
+               CHGVAR     VAR(&NMSGQNT) VALUE(&NMSGQNT + 1)
+             ENDDO
+             MONMSG     MSGID(CPF9999)
+             CHGVAR     VAR(&NMSGQ) VALUE(&NMSGQ +1)
+
+
+/* 005 - Added ITDLTUSRSQ - Delete User Profile SQL */
+
+             CALL       PGM(ITDLTUSRSQ) PARM(&UPUPRF)
+
+
+             CHGVAR     VAR(&USRGRP) VALUE('        ')
+             RTVUSRPRF  USRPRF(&UPUPRF) GRPPRF(&USRGRP)
+             MONMSG     MSGID(CPF0000)
+             IF         COND(&USRGRP *EQ '*NONE     ' *OR &USRGRP +
+                          *EQ '        ') THEN(CHGVAR VAR(&USRGRP) +
+                          VALUE('STAPLES   '))
+
+/* CHG000000029139 */
+
+             IF         COND(&SYSNAM *NE 'COSMOS  ' *AND &SYSNAM *NE +
+                          'DAYBREAK' *AND &SYSNAM *NE 'DAWN    ' +
+                           *AND &SYSNAM *NE 'LYRA    ' +
+                           *AND &SYSNAM *NE 'MAR4DEV1' +
+                          *AND &SYSNAM *NE 'S44DEV  ') THEN(DO)
+
+             CALL       PGM(ITTOOLS/PCU100OWN) PARM(&UPUPRF &USRGRP)
+             RMVM       FILE(ITTOOLS/DLTPRFOBJS) MBR(&UPUPRF)
+             MONMSG     MSGID(CPF0000)
+             ENDDO
+
+/* CHG000000029139 */
+
+/*001 - CHG000000049838 - If not Development process DLTUSRPRF with *CHGOWN   */
+/*                        and the group profile else process with *NODLT.     */
+
+             IF         COND(&SYSNAM *NE 'COSMOS  ' *AND &SYSNAM *NE +
+                          'DAYBREAK' *AND &SYSNAM *NE 'DAWN    ' +
+                           *AND &SYSNAM *NE 'LYRA    ' +
+                           *AND &SYSNAM *NE 'MAR4DEV1' +
+                          *AND &SYSNAM *NE 'S44DEV  ') THEN(DO)
+
+             DLTUSRPRF  USRPRF(&UPUPRF) OWNOBJOPT(*CHGOWN &USRGRP)
+
+             MONMSG     MSGID(CPF2258 CPF2263 CPF2222 CPF2204 +
+                          CPF2451 CPD2205)
+             MONMSG     MSGID(CPFAC9D CPFA030 CPF22BF CPF22B3 +
+                          CPF22C1 CPF220A CPF220B CPF220C CPF2203 +
+                          CPF2204 CPF221A CPF221E CPF221F CPF2213 +
+                          CPF2215 CPF2217 CPF2225 CPF2227 CPF2229 +
+                          CPF2238 CPF2265 CPF2236 CPF2451 CPD2205) +
+                          EXEC(DO)
+               SNDPGMMSG  MSG('User Profile ' *CAT &UPUPRF *TCAT ', +
+                           NOT Deleted')
+               CHGVAR     VAR(&NCOUNT2) VALUE(&NCOUNT2 + 1)
+/*006*/          RCVMSG     MSGTYPE(*LAST) RMV(*NO) MSG(&MSG1)
+                 MONMSG     MSGID(CPF0000)
+                 CALL       PGM(ITTOOLS/PCU110) PARM(&UPUPRF &MSG1)
+                 MONMSG     MSGID(CPF0000)
+               GOTO       CMDLBL(READFILE)
+             ENDDO
+
+             CHGVAR     VAR(&NCOUNT) VALUE(&NCOUNT + 1)
+             GOTO       CMDLBL(READFILE)
+             ENDDO
+
+             ELSE       CMD(DO)
+
+             DLTUSRPRF  USRPRF(&UPUPRF) OWNOBJOPT(*NODLT)
+
+             MONMSG     MSGID(CPF2258 CPF2263 CPF2222 CPF2204 +
+                          CPF2451 CPD2205)
+             MONMSG     MSGID(CPFAC9D CPFA030 CPF22BF CPF22B3 +
+                          CPF22C1 CPF220A CPF220B CPF220C CPF2203 +
+                          CPF2204 CPF221A CPF221E CPF221F CPF2213 +
+                          CPF2215 CPF2217 CPF2225 CPF2227 CPF2229 +
+                          CPF2238 CPF2265 CPF2236 CPF2451 CPD2205) +
+                          EXEC(DO)
+               SNDPGMMSG  MSG('User Profile ' *CAT &UPUPRF *TCAT ', +
+                           NOT Deleted')
+               CHGVAR     VAR(&NCOUNT2) VALUE(&NCOUNT2 + 1)
+/*006*/          RCVMSG     MSGTYPE(*LAST) RMV(*NO) MSG(&MSG1)
+                 MONMSG     MSGID(CPF0000)
+                 CALL       PGM(ITTOOLS/PCU110) PARM(&UPUPRF &MSG1)
+                 MONMSG     MSGID(CPF0000)
+               GOTO       CMDLBL(READFILE)
+             ENDDO
+
+             CHGVAR     VAR(&NCOUNT) VALUE(&NCOUNT + 1)
+             GOTO       CMDLBL(READFILE)
+             ENDDO
+
+ BYEBYE:     CHGVAR     VAR(&COUNT) VALUE(&NCOUNT)
+             CHGVAR     VAR(&COUNT2) VALUE(&NCOUNT2)
+
+             CHGVAR     VAR(&MSGQ) VALUE(&NMSGQ)
+             CHGVAR     VAR(&MSGQNT) VALUE(&NMSGQNT)
+
+             SNDPGMMSG  MSG(&COUNT *BCAT ' User Profiles have been +
+                          deleted. Objects Owned transferred to +
+                          user STAPLES.')
+
+             SNDPGMMSG  MSG(&COUNT2 *BCAT ' User Profiles could NOT +
+                          be deleted.')
+
+             SNDPGMMSG  MSG(&MSGQ *BCAT ' MSGQs have been deleted.')
+
+             SNDPGMMSG  MSG(&MSGQNT *BCAT ' MSGQs were Not Found.')
+
+             OVRPRTF    FILE(QPQUPRFIL) OUTQ(QUSRSYS/PENTATECHQ)
+             MONMSG     MSGID(CPF0000)
+
+             CALL       PGM(ITTOOLS/PCUPRFAUD)
+             MONMSG     MSGID(CPF0000)
+
+/*002 - CHG000000052172 - Cleanup ODBCUSERS for deleted profiles after        */
+/*                        creating a backup.  File is deleted first in case   */
+/*                        moving from non-HA to HA file structure.            */
+/*                        (If any errors skip SQL.)                           */
+
+             DLTF       FILE(ODBCLOG/ODBCUSERBK)
+             MONMSG     MSGID(CPF0000)
+
+             CPYF       FROMFILE(ODBCLOG/ODBCUSERS) +
+                          TOFILE(ODBCLOG/ODBCUSERBK) +
+                          MBROPT(*REPLACE) CRTFILE(*YES)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(END))
+
+             DSPOBJD    OBJ(*ALL) OBJTYPE(*USRPRF) OUTPUT(*OUTFILE) +
+                          OUTFILE(QTEMP/PCUUSRPRF)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(END))
+
+             RUNSQLSTM  SRCFILE(SYSSRC/QSQLSESS) SRCMBR(PCU100SQL) +
+                          COMMIT(*NONE)
+             MONMSG     MSGID(SQL9010)
+
+/*003 - CHG000000059399 - Purge SFSCTY omitting selected profile prefixes     */
+/*                        after creating a backup.                            */
+/*                        (If any errors skip SQL.)                           */
+
+             IF       COND(&SYSNAM *EQ 'SUNRISE') THEN(DO)
+             CPYF       FROMFILE(SFBASLIB/SFSCTY) +
+                          TOFILE(TECSVCLIB/SFSCTYBACK) +
+                          MBROPT(*REPLACE) CRTFILE(*YES)
+             MONMSG     MSGID(CPF0000) EXEC(GOTO CMDLBL(END))
+
+             RUNSQLSTM  SRCFILE(SYSSRC/QSQLSESS) SRCMBR(PCU100SQL2) +
+                          COMMIT(*NONE)
+             MONMSG     MSGID(SQL9010)
+             ENDDO
+
+END:         ENDPGM
